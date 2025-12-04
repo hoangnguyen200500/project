@@ -1,19 +1,18 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, render_template
 from flask_cors import CORS
 import pandas as pd
-import json
 
 app = Flask(__name__)
-CORS(app)  # Kích hoạt CORS cho toàn bộ ứng dụng, cho phép mọi domain đều có thể truy cập
+CORS(app)
 
-@app.route('/')
+@app.route("/")
 def home():
-    return "Hello, Client!"
+    return render_template("index.html")     # <<< Không dùng "Hello Client" nữa
 
-@app.route('/api/students')
+@app.route("/api/students")
 def get_students_from_csv():
     try:
-        df = pd.read_csv("./students_dropout_academic_success.csv")  # đảm bảo đúng đường dẫn
+        df = pd.read_csv("students_dropout_academic_success.csv")
         data = df.to_dict(orient="records")
         return jsonify(data)
     except FileNotFoundError:
@@ -21,5 +20,6 @@ def get_students_from_csv():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True, port=8080)
+

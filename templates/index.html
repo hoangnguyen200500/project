@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Phân tích dữ liệu sinh viên</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highcharts/10.3.3/highcharts.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highcharts/10.3.3/modules/heatmap.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highcharts/10.3.3/modules/exporting.js"></script>
+    <style>
+        .chart-container {
+            min-height: 400px;
+            margin-bottom: 30px;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto p-6">
+        <h1 class="text-3xl font-bold text-center text-blue-800 mb-10">Phân tích dữ liệu sinh viên</h1>
+        
+        <div class="grid grid-cols-1 gap-8">
+            <!-- Loading State -->
+            <div id="loadingState" class="bg-white rounded-lg shadow-lg p-6 text-center">
+                <div class="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-800 mx-auto mb-4"></div>
+                <p class="text-lg text-gray-700">Đang tải dữ liệu từ API...</p>
+            </div>
+            
+            <!-- Error State -->
+            <div id="errorState" class="hidden bg-white rounded-lg shadow-lg p-6 text-center">
+                <div class="text-red-500 text-5xl mb-4">⚠️</div>
+                <p class="text-lg text-red-700 mb-2">Không thể tải dữ liệu từ API</p>
+                <p id="errorMessage" class="text-gray-700"></p>
+                <button id="retryButton" class="mt-4 bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                    Thử lại
+                </button>
+            </div>
+            
+            <!-- Charts Container - Initially Hidden -->
+            <div id="chartsContainer" class="hidden">
+                <!-- 1. Biểu đồ Stacked Bar: Số lượng môn đã đăng ký vs môn đã qua vs chưa được đánh giá -->
+                <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                    <h2 class="text-xl font-semibold text-gray-800 mb-4">1. Số lượng môn học theo trạng thái</h2>
+                    <div id="stackedBarChart" class="chart-container"></div>
+                </div>
+                
+                <!-- 2. Biểu đồ Line Chart: Số lượng evaluations, điểm trung bình theo học kỳ -->
+                <div class="bg-white rounded-lg shadow-lg p-6 mb-8">
+                    <h2 class="text-xl font-semibold text-gray-800 mb-4">2. Evaluations và điểm trung bình theo học kỳ</h2>
+                    <div id="lineChart" class="chart-container"></div>
+                </div>
+                
+                <!-- 3. Heatmap: Phân tích tương quan -->
+                <div class="bg-white rounded-lg shadow-lg p-6">
+                    <h2 class="text-xl font-semibold text-gray-800 mb-4">3. Phân tích tương quan với Target</h2>
+                    <div class="mb-4">
+                        <select id="targetFilter" class="border border-gray-300 rounded px-4 py-2">
+                            <option value="all">Tất cả các target</option>
+                        </select>
+                    </div>
+                    <div id="heatmapChart" class="chart-container"></div>
+                </div>
+
+                <!-- Thống kê tổng quan -->
+                <div class="bg-white rounded-lg shadow-lg p-6 mt-8">
+                    <h2 class="text-xl font-semibold text-gray-800 mb-4">Thống kê tổng quan</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                            <h3 class="text-lg font-medium text-blue-800">Tổng sinh viên</h3>
+                            <p id="totalStudents" class="text-2xl font-bold text-blue-600">-</p>
+                        </div>
+                        <div class="bg-green-50 p-4 rounded-lg border border-green-200">
+                            <h3 class="text-lg font-medium text-green-800">Tỷ lệ Dropout</h3>
+                            <p id="dropoutRate" class="text-2xl font-bold text-green-600">-</p>
+                        </div>
+                        <div class="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                            <h3 class="text-lg font-medium text-purple-800">Điểm trung bình đầu vào</h3>
+                            <p id="avgAdmissionGrade" class="text-2xl font-bold text-purple-600">-</p>
+                        </div>
+                        <div class="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                            <h3 class="text-lg font-medium text-yellow-800">Độ tuổi trung bình</h3>
+                            <p id="avgAge" class="text-2xl font-bold text-yellow-600">-</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Biến để lưu trữ dữ liệu
+        let studentsData = [];
+        
+        // Hàm để tạo các biểu đồ từ dữ liệu
+        function renderCharts(data) {
+            // Hiển thị container chứa biểu đồ
+            document.getElementById('chartsContainer').classList.remove('hidden');
+            
+            // Tạo biểu đồ stacked bar
+            createStackedBarChart(data);
+            
+            // Tạo biểu đồ line chart
+            createLineChart(data);
+            
+            // Tạo biểu đồ heatmap
+            createHeatmap(data);
+            
+            // Hiển thị thống kê tổng quan
+            displayOverallStats(data);
+            
+            // Thiết lập bộ lọc target
+            setupTargetFilter(data);
+        }
+        
+        // Hàm để tạo biểu đồ stacked bar
+        function createStackedBarChart(data) {
+            // Tính toán dữ liệu cho biểu đồ stacked bar
+            const semesterData = [
+                {
+                    name: 'Học kỳ 1',
+                    enrolled: 0,
+                    approved: 0,
+                    notEvaluated: 0
+                },
+                {
+                    name: 'Học kỳ 2',
+                    enrolled: 0,
+                    approved: 0,
+                    notEvaluated: 0
+                }
+            ];
+            
+            // Tính tổng số môn đã đăng ký, đã qua, chưa đánh giá cho mỗi học kỳ
+            data.forEach(student => {
+                // Học kỳ 1
+                semesterData[0].enrolled += student["Curricular units 1st sem (enrolled)"];
+                semesterData[0].approved += student["Curricular units 1st sem (approved)"];
+                semesterData[0].notEvaluated += student["Curricular units 1st sem (without evaluations)"];
+                
+                // Học kỳ 2
+                semesterData[1].enrolled += student["Curricular units 2nd sem (enrolled)"];
+                semesterData[1].approved += student["Curricular units 2nd sem (approved)"];
+                semesterData[1].notEvaluated += student["Curricular units 2nd sem (without evaluations)"];
+            });
+            
+            // Tính trung bình
+            const studentCount = data.length;
+            semesterData.forEach(semester => {
+                semester.enrolled = parseFloat((semester.enrolled / studentCount).toFixed(2));
+                semester.approved = parseFloat((semester.approved / studentCount).toFixed(2));
+                semester.notEvaluated = parseFloat((semester.notEvaluated / studentCount).toFixed(2));
+            });
+
+            // Tạo biểu đồ
+            Highcharts.chart('stackedBarChart', {
+                chart: {
+                    type: 'column'
+                },
+                title: {
+                    text: 'Số lượng môn học trung bình theo học kỳ',
+                    align: 'left'
+                },
+                xAxis: {
+                    categories: ['Học kỳ 1', 'Học kỳ 2']
+                },
+                yAxis: {
+                    title: {
+                        text: 'Số lượng môn học trung bình'
+                    },
+                    stackLabels: {
+                        enabled: true,
+                        style: {
+                            fontWeight: 'bold'
+                        }
+                    }
+                },
+                tooltip: {
+                    headerFormat: '<b>{point.x}</b><br/>',
+                    pointFormat: '{series.name}: {point.y}<br/>Tổng: {point.stackTotal}'
+                },
+                plotOptions: {
+                    column: {
+                        stacking: 'normal',
+                        dataLabels: {
+                            enabled: true
+                        }
+                    }
+                },
+                series: [{
+                    name: 'Đã đăng ký',
+                    data: [semesterData[0].enrolled, semesterData[1].enrolled],
+                    color: '#4285F4'
+                }, {
+                    name: 'Đã qua môn',
+                    data: [semesterData[0].approved, semesterData[1].approved],
+                    color: '#34A853'
+                }, {
+                    name: 'Chưa đánh giá',
+                    data: [semesterData[0].notEvaluated, semesterData[1].notEvaluated],
+                    color: '#FBBC05'
+                }],
+                credits: {
+                    enabled: false
+                }
+            });
+        }
+        
+        // Hàm để tạo biểu đồ line chart
+        function createLineChart(data) {
+            // Tính toán dữ liệu cho biểu đồ line chart
+            const evaluationsData = [0, 0]; // [sem1, sem2]
+            const gradesData = [0, 0]; // [sem1, sem2]
+            
+            // Lọc ra những sinh viên có dữ liệu đánh giá và điểm
+            const validStudents1 = data.filter(student => 
+                student["Curricular units 1st sem (evaluations)"] > 0);
+            const validStudents2 = data.filter(student => 
+                student["Curricular units 2nd sem (evaluations)"] > 0);
+            
+            // Tính tổng số đánh giá và điểm trung bình
+            validStudents1.forEach(student => {
+                evaluationsData[0] += student["Curricular units 1st sem (evaluations)"];
+                gradesData[0] += student["Curricular units 1st sem (grade)"];
+            });
+            
+            validStudents2.forEach(student => {
+                evaluationsData[1] += student["Curricular units 2nd sem (evaluations)"];
+                gradesData[1] += student["Curricular units 2nd sem (grade)"];
+            });
+            
+            // Tính trung bình
+            if (validStudents1.length > 0) {
+                evaluationsData[0] = parseFloat((evaluationsData[0] / validStudents1.length).toFixed(2));
+                gradesData[0] = parseFloat((gradesData[0] / validStudents1.length).toFixed(2));
+            }
+            
+            if (validStudents2.length > 0) {
+                evaluationsData[1] = parseFloat((evaluationsData[1] / validStudents2.length).toFixed(2));
+                gradesData[1] = parseFloat((gradesData[1] / validStudents2.length).toFixed(2));
+            }
+            
+            // Tạo biểu đồ
+            Highcharts.chart('lineChart', {
+                title: {
+                    text: 'Đánh giá và điểm trung bình theo học kỳ',
+                    align: 'left'
+                },
+                xAxis: {
+                    categories: ['Học kỳ 1', 'Học kỳ 2']
+                },
+                yAxis: [{
+                    title: {
+                        text: 'Số lượng đánh giá'
+                    }
+                }, {
+                    title: {
+                        text: 'Điểm trung bình'
+                    },
+                    opposite: true
+                }],
+                tooltip: {
+                    shared: true
+                },
+                series: [{
+                    name: 'Số lượng đánh giá',
+                    type: 'column',
+                    data: evaluationsData,
+                    color: '#5C6BC0',
+                    tooltip: {
+                        valueSuffix: ' đánh giá'
+                    }
+                }, {
+                    name: 'Điểm trung bình',
+                    type: 'spline',
+                    yAxis: 1,
+                    data: gradesData,
+                    color: '#FF7043',
+                    marker: {
+                        enabled: true
+                    },
+                    tooltip: {
+                        valueSuffix: ' điểm'
+                    }
+                }],
+                credits: {
+                    enabled: false
+                }
+            });
+        }
+        
+        // Hàm để tạo biểu đồ heatmap
+        function createHeatmap(data) {
+            // Các thuộc tính cần phân tích tương quan
+            const attributes = [
+                'Admission grade', 
+                'Age at enrollment', 
+                'Tuition fees up to date', 
+                'Debtor', 
+                'Scholarship holder'
+            ];
+            
+            // Xác định các target duy nhất
+            const uniqueTargets = [...new Set(data.map(student => student.target))];
+            
+            // Tạo heatmap data
+            const createHeatmapData = (targetFilter = null) => {
+                // Lọc dữ liệu theo target nếu có
+                const filteredData = targetFilter === 'all' || !targetFilter 
+                    ? data 
+                    : data.filter(student => student.target === targetFilter);
+
+                let heatmapData = [];
+                let targetCounts = {};
+                
+                // Tính số lượng mỗi target
+                uniqueTargets.forEach(target => {
+                    targetCounts[target] = filteredData.filter(student => student.target === target).length;
+                });
+                
+                // Tính toán dữ liệu cho từng thuộc tính
+                attributes.forEach((attr, y) => {
+                    // Tính giá trị trung bình của thuộc tính cho mỗi target
+                    uniqueTargets.forEach((target, x) => {
+                        const studentsWithTarget = filteredData.filter(student => student.target === target);
+                        const total = studentsWithTarget.reduce((sum, student) => sum + student[attr], 0);
+                        const avg = studentsWithTarget.length > 0 ? total / studentsWithTarget.length : 0;
+                        
+                        heatmapData.push([x, y, parseFloat(avg.toFixed(2))]);
+                    });
+                });
+                
+                return { heatmapData, targetCounts };
+            };
+            
+            // Khởi tạo heatmap với tất cả dữ liệu
+            const initialData = createHeatmapData();
+            
+            // Render heatmap
+            const renderHeatmap = (heatmapData, targetCounts) => {
+                Highcharts.chart('heatmapChart', {
+                    chart: {
+                        type: 'heatmap'
+                    },
+                    title: {
+                        text: 'Phân tích tương quan giữa các thuộc tính và Target',
+                        align: 'left'
+                    },
+                    xAxis: {
+                        categories: uniqueTargets.map(target => `${target} (${targetCounts[target] || 0})`)
+                    },
+                    yAxis: {
+                        categories: attributes,
+                        title: null
+                    },
+                    colorAxis: {
+                        min: 0,
+                        minColor: '#FFFFFF',
+                        maxColor: '#1565C0'
+                    },
+                    legend: {
+                        align: 'right',
+                        layout: 'vertical',
+                        margin: 0,
+                        verticalAlign: 'top',
+                        y: 25,
+                        symbolHeight: 280
+                    },
+                    tooltip: {
+                        formatter: function () {
+                            return `<b>${this.series.yAxis.categories[this.point.y]}</b><br>` +
+                                   `Target: ${this.series.xAxis.categories[this.point.x].split(' ')[0]}<br>` +
+                                   `Giá trị trung bình: <b>${this.point.value}</b>`;
+                        }
+                    },
+                    series: [{
+                        name: 'Giá trị trung bình',
+                        borderWidth: 1,
+                        data: heatmapData,
+                        dataLabels: {
+                            enabled: true,
+                            color: '#000000'
+                        }
+                    }],
+                    credits: {
+                        enabled: false
+                    }
+                });
+            };
+            
+            // Render heatmap lần đầu
+            renderHeatmap(initialData.heatmapData, initialData.targetCounts);
+            
+            // Thiết lập sự kiện cho bộ lọc target
+            document.getElementById('targetFilter').addEventListener('change', function() {
+                const selectedTarget = this.value;
+                const filteredData = createHeatmapData(selectedTarget);
+                renderHeatmap(filteredData.heatmapData, filteredData.targetCounts);
+            });
+        }
+        
+        // Hàm để thiết lập bộ lọc target
+        function setupTargetFilter(data) {
+            const targetFilter = document.getElementById('targetFilter');
+            const uniqueTargets = [...new Set(data.map(student => student.target))];
+            
+            // Xóa các option cũ
+            targetFilter.innerHTML = '<option value="all">Tất cả các target</option>';
+            
+            // Thêm các option mới
+            uniqueTargets.forEach(target => {
+                const option = document.createElement('option');
+                option.value = target;
+                option.textContent = target;
+                targetFilter.appendChild(option);
+            });
+        }
+        
+        // Hiển thị thống kê tổng quan
+        function displayOverallStats(data) {
+            // Tổng số sinh viên
+            document.getElementById('totalStudents').textContent = data.length;
+            
+            // Tỷ lệ Dropout
+            const dropouts = data.filter(student => student.target === 'Dropout').length;
+            const dropoutRate = (dropouts / data.length * 100).toFixed(2);
+            document.getElementById('dropoutRate').textContent = `${dropoutRate}%`;
+            
+            // Điểm trung bình đầu vào
+            const avgAdmissionGrade = data.reduce((sum, student) => sum + student["Admission grade"], 0) / data.length;
+            document.getElementById('avgAdmissionGrade').textContent = avgAdmissionGrade.toFixed(2);
+            
+            // Độ tuổi trung bình
+            const avgAge = data.reduce((sum, student) => sum + student["Age at enrollment"], 0) / data.length;
+            document.getElementById('avgAge').textContent = avgAge.toFixed(2);
+        }
+        
+        // Hàm để tải dữ liệu từ API
+        function fetchData() {
+            // Hiển thị trạng thái đang tải
+            document.getElementById('loadingState').classList.remove('hidden');
+            document.getElementById('errorState').classList.add('hidden');
+            document.getElementById('chartsContainer').classList.add('hidden');
+            
+            fetch('http://127.0.0.1:8080/api/students')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! Status: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Lưu dữ liệu
+                    studentsData = data;
+                    
+                    // Ẩn trạng thái đang tải
+                    document.getElementById('loadingState').classList.add('hidden');
+                    
+                    // Render biểu đồ
+                    renderCharts(data);
+                })
+                .catch(error => {
+                    console.error('Error fetching data:', error);
+                    
+                    // Hiển thị trạng thái lỗi
+                    document.getElementById('loadingState').classList.add('hidden');
+                    document.getElementById('errorState').classList.remove('hidden');
+                    document.getElementById('errorMessage').textContent = `Lỗi: ${error.message}`;
+                });
+        }
+        
+        // Nút thử lại
+        document.getElementById('retryButton').addEventListener('click', fetchData);
+        
+        // Tải dữ liệu khi trang được tải
+        document.addEventListener('DOMContentLoaded', fetchData);
+    </script>
+</body>
+</html>
